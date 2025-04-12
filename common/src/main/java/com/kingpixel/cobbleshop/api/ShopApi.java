@@ -24,25 +24,35 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author Carlos Varas Alonso - 28/09/2024 20:15
  */
 public class ShopApi {
   // ModId -> Config
-  public static Map<String, Config> configs = new HashMap<>();
+  public static Map<String, Config> configs = new ConcurrentHashMap<>();
   // ModId -> List<Shop>
-  public static Map<String, List<Shop>> shops = new HashMap<>();
-  public static Map<Shop, List<Product>> sellProducts = new HashMap<>();
+  public static Map<String, List<Shop>> shops = new ConcurrentHashMap<>();
+  public static Map<Shop, List<Product>> sellProducts = new ConcurrentHashMap<>();
 
   public static void register(ShopOptionsApi options, CommandDispatcher<ServerCommandSource> dispatcher) {
     OldShop.migration();
-    new Config().readConfig(options);
+    configs.remove(options.getModId());
+    shops.remove(options.getModId());
+    Config config = new Config().readConfig(options);
+    configs.put(options.getModId(), config);
     options.setCommands(configs.get(options.getModId()).getCommands());
-    Config.readShops(options);
-    CobbleShop.lang.init(configs.get(CobbleShop.MOD_ID));
     CommandTree.register(options, dispatcher);
     CobbleShop.initSellProduct(options);
+    Config.readShops(options);
+    Config main = configs.get(CobbleShop.MOD_ID);
+    if (main == null) {
+      CobbleUtils.LOGGER.error(CobbleShop.MOD_ID, "Config not found for modId: " + options.getModId());
+      return;
+    }
+    CobbleShop.lang.init(main);
   }
 
 
@@ -65,40 +75,36 @@ public class ShopApi {
   public static void sellAll(ServerPlayerEntity player, List<ItemStack> itemStacks, ShopOptionsApi options) {
     CompletableFuture.runAsync(() -> {
         Map<EconomyUse, BigDecimal> dataSell = new HashMap<>();
-        for (ItemStack itemStack : itemStacks) {
-          for (Map.Entry<Shop, List<Product>> entry : sellProducts.entrySet()) {
-            Shop shop = entry.getKey();
-            List<Product> products = entry.getValue();
 
-            for (Product product : products) {
-              if (!product.canSell(player, shop, options)) continue;
-              Product.SellProduct sellProduct = Product.sellProduct(shop, itemStack, product);
-              if (sellProduct == null) continue;
-
-              int amount = itemStack.getCount();
-              DataBaseFactory.INSTANCE.addTransaction(player, shop, product, ActionShop.SELL, amount, product.getSellPrice(amount));
-
-              dataSell.merge(shop.getEconomy(), sellProduct.getPrice(), BigDecimal::add);
-            }
-          }
-        }
+        sellProducts.forEach((shop, products) -> {
+          products.stream()
+            .filter(product -> product.canSell(player, shop, options))
+            .forEach(product -> {
+              itemStacks.stream()
+                .map(itemStack -> Product.sellProduct(shop, itemStack, product))
+                .filter(price -> price.compareTo(BigDecimal.ZERO) > 0)
+                .forEach(price -> {
+                  dataSell.merge(shop.getEconomy(), price, BigDecimal::add);
+                  DataBaseFactory.INSTANCE.addTransaction(player, shop, product, ActionShop.SELL, price.intValue(), product.getSellPrice(price.intValue()));
+                });
+            });
+        });
 
         if (!dataSell.isEmpty()) {
-          String message = CobbleShop.lang.getMessageSell();
           StringBuilder allSell = new StringBuilder();
-
           dataSell.forEach((economyUse, price) -> {
             allSell.append(CobbleShop.lang.getFormatSell()
-                .replace("%price%", EconomyApi.formatMoney(price, economyUse.getCurrency(), economyUse.getEconomyId())))
+                .replace("%price%", EconomyApi.formatMoney(price, economyUse)))
               .append("\n");
-            EconomyApi.addMoney(player.getUuid(), price, economyUse.getCurrency(), economyUse.getEconomyId());
+            EconomyApi.addMoney(player.getUuid(), price, economyUse);
           });
 
-          PlayerUtils.sendMessage(player, message.replace("%sell%", allSell.toString()), CobbleShop.lang.getPrefix(), TypeMessage.CHAT);
+          PlayerUtils.sendMessage(player, CobbleShop.lang.getMessageSell().replace("%sell%", allSell.toString()), CobbleShop.lang.getPrefix(), TypeMessage.CHAT);
         } else {
           PlayerUtils.sendMessage(player, CobbleShop.lang.getMessageNotSell(), CobbleShop.lang.getPrefix(), TypeMessage.CHAT);
         }
       })
+      .orTimeout(30, TimeUnit.SECONDS)
       .exceptionally(e -> {
         CobbleUtils.LOGGER.error(CobbleShop.MOD_ID, "Error selling items -> " + e);
         return null;

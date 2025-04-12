@@ -49,6 +49,7 @@ public class Product {
   // Essential fields
   private Integer slot;
   private String product;
+  private Boolean tooltip;
   private BigDecimal buy;
   private BigDecimal sell;
 
@@ -73,6 +74,7 @@ public class Product {
       lore = List.of("This is a custom stone", "You can use it to build");
       CustomModelData = 0;
       slot = 0;
+      tooltip = true;
     }
   }
 
@@ -83,21 +85,16 @@ public class Product {
       if (slot == null) slot = 0;
     }
     if (cooldown != null || max != null) {
-      if (uuid == null) {
-        uuid = UUID.randomUUID();
-      }
-      if (max == null) {
-        max = 1;
-      }
-      if (cooldown == null) {
-        cooldown = 60;
-      }
+      if (uuid == null) uuid = UUID.randomUUID();
+      if (max == null) max = 1;
+      if (cooldown == null) cooldown = 60;
     }
   }
 
   public GooeyButton getIcon(ServerPlayerEntity player, Stack<Shop> shop, ActionShop actionShop, int amount,
                              ShopOptionsApi options,
                              Config config, boolean withClose, String playerBalance) {
+    Shop peek = shop.peek();
     String finalDisplay = this.display != null ? this.display : product;
     ItemChance itemChance = new ItemChance(finalDisplay, 0);
     String title = this.displayname != null ? this.displayname : itemChance.getTitle();
@@ -151,11 +148,15 @@ public class Product {
     ItemStack itemStack = itemChance.getItemStack();
     if (amount == itemStack.getCount()) itemStack.setCount(amount);
     if (itemStack.getCount() == 0) itemStack.setCount(1);
+    itemStack.remove(DataComponentTypes.HIDE_ADDITIONAL_TOOLTIP);
+    if (Boolean.TRUE.equals(tooltip)) {
+      itemStack.set(DataComponentTypes.HIDE_ADDITIONAL_TOOLTIP, Unit.INSTANCE);
+    }
+
     GooeyButton.Builder builder = GooeyButton.builder()
       .display(itemStack)
-      .with(DataComponentTypes.CUSTOM_NAME, AdventureTranslator.toNative(title))
-      .with(DataComponentTypes.LORE, new LoreComponent(AdventureTranslator.toNativeL(lore)))
-      .with(DataComponentTypes.HIDE_ADDITIONAL_TOOLTIP, Unit.INSTANCE);
+      .with(DataComponentTypes.CUSTOM_NAME, AdventureTranslator.toNative(peek.getColorProduct().intern() + title))
+      .with(DataComponentTypes.LORE, new LoreComponent(AdventureTranslator.toNativeL(lore)));
 
     return builder
       .onClick(action -> {
@@ -168,7 +169,7 @@ public class Product {
           }
 
           // Need Permissions
-          Shop peek = shop.peek();
+
           if (havePermission(player, peek)) {
             new Sound(peek.getSoundOpen()).playSoundPlayer(player);
             if (DataBaseFactory.INSTANCE.canBuy(player, this)) {
@@ -198,6 +199,41 @@ public class Product {
         }
       })
       .build();
+  }
+
+  private String replace(ServerPlayerEntity player, String s, Shop shop, int amount, Config config, String playerBalance) {
+    if (s == null || s.isEmpty()) return "";
+    var economy = shop.getEconomy();
+
+
+    if (s.contains("%buy%")) {
+      BigDecimal buyPrice = getBuyPrice(player, amount, shop, config);
+      s = s.replace("%buy%", EconomyApi.formatMoney(buyPrice, economy));
+    }
+    if (s.contains("%sell%")) {
+      BigDecimal sellPrice = getSellPrice(amount);
+      s = s.replace("%sell%", EconomyApi.formatMoney(sellPrice, economy));
+    }
+    if (s.contains("%amount%")) {
+      s = s.replace("%amount%", String.valueOf(amount));
+    }
+    if (s.contains("%pack%")) {
+      s = s.replace("%pack%", String.valueOf(getItemStack().getCount()));
+    }
+    if (s.contains("%discount%")) {
+      float discount = getDiscount(player, shop, config);
+      s = s.replace("%discount%", discount > 0f ? discount + "%" : "");
+    }
+    if (s.contains("%removebuy%")) {
+      s = s.replace("%removebuy%", "");
+    }
+    if (s.contains("%removesell%")) {
+      s = s.replace("%removesell%", "");
+    }
+
+    s = s.replace("%balance%", playerBalance == null ? "" : playerBalance);
+
+    return s;
   }
 
   public boolean havePermission(ServerPlayerEntity player, Shop shop) {
@@ -252,41 +288,6 @@ public class Product {
     }
   }
 
-  private String replace(ServerPlayerEntity player, String s, Shop shop, int amount, Config config, String playerBalance) {
-    if (s == null || s.isEmpty()) return "";
-    var economy = shop.getEconomy();
-
-
-    if (s.contains("%buy%")) {
-      BigDecimal buyPrice = getBuyPrice(player, amount, shop, config);
-      s = s.replace("%buy%", EconomyApi.formatMoney(buyPrice, economy.getCurrency(), economy.getEconomyId()));
-    }
-    if (s.contains("%sell%")) {
-      BigDecimal sellPrice = getSellPrice(amount);
-      s = s.replace("%sell%", EconomyApi.formatMoney(sellPrice, economy.getCurrency(), economy.getEconomyId()));
-    }
-    if (s.contains("%amount%")) {
-      s = s.replace("%amount%", String.valueOf(amount));
-    }
-    if (s.contains("%pack%")) {
-      s = s.replace("%pack%", String.valueOf(getItemStack().getCount()));
-    }
-    if (s.contains("%discount%")) {
-      float discount = getDiscount(player, shop, config);
-      s = s.replace("%discount%", discount > 0f ? discount + "%" : "");
-    }
-    if (s.contains("%removebuy%")) {
-      s = s.replace("%removebuy%", "");
-    }
-    if (s.contains("%removesell%")) {
-      s = s.replace("%removesell%", "");
-    }
-
-    s = s.replace("%balance%", playerBalance == null ? "" : playerBalance);
-
-    return s;
-  }
-
 
   public boolean isSellable() {
     return sell != null && sell.compareTo(BigDecimal.ZERO) > 0;
@@ -301,8 +302,7 @@ public class Product {
     boolean result = false;
     ItemChance itemChance = new ItemChance(product, 0);
     BigDecimal totalBuy = getBuyPrice(player, amount, shop, config);
-    if (EconomyApi.hasEnoughMoney(player.getUuid(), totalBuy, shop.getEconomy().getCurrency(), true,
-      shop.getEconomy().getEconomyId())) {
+    if (EconomyApi.hasEnoughMoney(player.getUuid(), totalBuy, shop.getEconomy(), true)) {
       ItemChance.giveReward(player, itemChance, amount);
       result = true;
     }
@@ -313,7 +313,7 @@ public class Product {
           .replace("%product%", itemChance.getTitle())
           .replace("%amount%", String.valueOf(amount))
           .replace("%pack%", itemChance.getItemStack().getCount() + "")
-          .replace("%price%", EconomyApi.formatMoney(totalBuy, shop.getEconomy().getCurrency(), shop.getEconomy().getEconomyId())),
+          .replace("%price%", EconomyApi.formatMoney(totalBuy, shop.getEconomy())),
         CobbleShop.lang.getPrefix(),
         TypeMessage.CHAT
       );
@@ -393,14 +393,14 @@ public class Product {
       if (remainingAmount <= 0) break;
     }
 
-    EconomyApi.addMoney(player.getUuid(), total, shop.getEconomy().getCurrency(), shop.getEconomy().getEconomyId());
+    EconomyApi.addMoney(player.getUuid(), total, shop.getEconomy());
 
     PlayerUtils.sendMessage(
       player,
       CobbleShop.lang.getMessageSimpleSell()
         .replace("%product%", productItemStack.getName().getString())
         .replace("%amount%", String.valueOf(selled))
-        .replace("%price%", EconomyApi.formatMoney(total, shop.getEconomy().getCurrency(), shop.getEconomy().getEconomyId())),
+        .replace("%price%", EconomyApi.formatMoney(total, shop.getEconomy())),
       CobbleShop.lang.getPrefix(),
       TypeMessage.CHAT
     );
@@ -410,27 +410,26 @@ public class Product {
     Config.manageOpenShop(player, options, config, null, stack, null, withClose);
   }
 
-  public static SellProduct sellProduct(Shop shop, ItemStack itemStack, Product product) {
+  public static BigDecimal sellProduct(Shop shop, ItemStack itemStack, Product product) {
     ItemStack itemProduct = product.getItemStack();
-    boolean equals = areEquals(itemStack, itemProduct);
-    if (equals) {
+    if (areEquals(itemStack, itemProduct)) {
       int itemStackCount = itemStack.getCount();
       int itemProductCount = itemProduct.getCount();
 
       // Evitar división por cero
-      if (itemProductCount <= 0) return null;
+      if (itemProductCount <= 0) return BigDecimal.ZERO;
 
       // Calcular el precio total de venta basado en la cantidad
       BigDecimal totalSellPrice = product.getSellPrice(itemStackCount);
 
       // Ajustar el precio basado en la cantidad del producto con escala y redondeo
-      BigDecimal adjustedPrice = totalSellPrice.divide(BigDecimal.valueOf(itemProductCount), 5,
-        RoundingMode.UNNECESSARY);
-      if (adjustedPrice.compareTo(BigDecimal.ZERO) <= 0) return null;
+      BigDecimal adjustedPrice = totalSellPrice.divide(BigDecimal.valueOf(itemProductCount), 9, RoundingMode.UNNECESSARY);
+      if (adjustedPrice.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
+
       itemStack.decrement(itemStackCount);
-      return new SellProduct(shop.getCurrency(), adjustedPrice);
+      return adjustedPrice;
     }
-    return null;
+    return BigDecimal.ZERO;
   }
 
   public static boolean areEquals(ItemStack itemStack, ItemStack itemProduct) {

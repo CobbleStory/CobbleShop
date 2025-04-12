@@ -1,8 +1,7 @@
 package com.kingpixel.cobbleshop.command;
 
 import com.kingpixel.cobbleshop.CobbleShop;
-import com.kingpixel.cobbleshop.adapters.ShopType;
-import com.kingpixel.cobbleshop.adapters.ShopTypePermanent;
+import com.kingpixel.cobbleshop.adapters.*;
 import com.kingpixel.cobbleshop.api.ShopApi;
 import com.kingpixel.cobbleshop.api.ShopOptionsApi;
 import com.kingpixel.cobbleshop.config.Config;
@@ -48,7 +47,7 @@ public class CommandTree {
     // Sell
     dispatcher.register(
       CommandManager.literal("sell")
-        .requires(source -> PermissionApi.hasPermission(source, "cobbleshop.sell.base", 4))
+        .requires(source -> PermissionApi.hasPermission(source, "cobbleshop.sell.base", 2))
         .then(
           CommandManager.literal("hand")
             .executes(context -> {
@@ -61,7 +60,7 @@ public class CommandTree {
               return 1;
             }).then(
               CommandManager.argument("player", EntityArgumentType.player())
-                .requires(source -> PermissionApi.hasPermission(source, "cobbleshop.sell.other", 4))
+                .requires(source -> PermissionApi.hasPermission(source, "cobbleshop.sell.other", 2))
                 .executes(context -> {
                   if (!context.getSource().isExecutedByPlayer()) return 0;
                   ServerPlayerEntity player = EntityArgumentType.getPlayer(context, "player");
@@ -81,7 +80,7 @@ public class CommandTree {
               return 1;
             }).then(
               CommandManager.argument("player", EntityArgumentType.player())
-                .requires(source -> PermissionApi.hasPermission(source, "cobbleshop.sell.other", 4))
+                .requires(source -> PermissionApi.hasPermission(source, "cobbleshop.sell.other", 2))
                 .executes(context -> {
                   if (!context.getSource().isExecutedByPlayer()) return 0;
                   ServerPlayerEntity player = EntityArgumentType.getPlayer(context, "player");
@@ -100,14 +99,14 @@ public class CommandTree {
       options.getModId() + ".shop";
     base
       .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".base",
-        modId + ".admin"), 4))
+        modId + ".admin"), 2))
       .executes(context -> {
         if (!context.getSource().isExecutedByPlayer()) return 0;
         ShopApi.getConfig(options).open(context.getSource().getPlayer(), options);
         return 1;
       }).then(
         CommandManager.literal("reload")
-          .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".reload", modId + ".admin"), 4))
+          .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".reload", modId + ".admin"), 2))
           .executes(context -> {
             if (!context.getSource().isExecutedByPlayer()) return 0;
             CobbleShop.load(options);
@@ -116,7 +115,7 @@ public class CommandTree {
       ).then(
         CommandManager.literal("other")
           .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".other",
-            modId + ".admin"), 4))
+            modId + ".admin"), 2))
           .then(
             CommandManager.argument("player", EntityArgumentType.players())
               .executes(context -> {
@@ -150,7 +149,7 @@ public class CommandTree {
           )
       ).then(
         CommandManager.literal("edit")
-          .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".edit", modId + ".admin"), 4))
+          .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".edit", modId + ".admin"), 2))
           .then(
             CommandManager.argument("shop", StringArgumentType.string())
               .suggests((commandContext, suggestionsBuilder) -> {
@@ -175,7 +174,7 @@ public class CommandTree {
           )
       ).then(
         CommandManager.literal("create")
-          .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".create", modId + ".admin"), 4))
+          .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".create", modId + ".admin"), 2))
           .then(
             CommandManager.argument("shop", StringArgumentType.string())
               .then(
@@ -202,6 +201,34 @@ public class CommandTree {
                     return 1;
                   })
               )
+          )
+      ).then(
+        CommandManager.literal("update")
+          .requires(source -> PermissionApi.hasPermission(source, List.of(modId + ".update", modId + ".admin"), 2))
+          .then(
+            CommandManager.argument("shop", StringArgumentType.string())
+              .suggests((context, builder) -> {
+                for (Shop shop : ShopApi.getShops(options)) {
+                  if (shop.getType() instanceof ShopTypeDynamic) {
+                    builder.suggest(shop.getId());
+                  } else if (shop.getType() instanceof ShopTypeDynamicWeekly) {
+                    builder.suggest(shop.getId());
+                  } else if (shop.getType() instanceof ShopTypeDynamicCalendar) {
+                    builder.suggest(shop.getId());
+                  }
+                }
+                return builder.buildFuture();
+              })
+              .executes(context -> {
+                Shop shop = ShopApi.getShop(options, StringArgumentType.getString(context, "shop"));
+                CobbleShop.dataShop.updateDynamicProducts(shop, options, true);
+                context.getSource().sendMessage(
+                  Text.literal(
+                    "The shop " + shop.getId() + " has been updated, please open the shop to see the changes"
+                  )
+                );
+                return 1;
+              })
           )
       );
 

@@ -15,7 +15,6 @@ import com.kingpixel.cobbleutils.CobbleUtils;
 import com.kingpixel.cobbleutils.Model.DataBaseConfig;
 import com.kingpixel.cobbleutils.Model.ItemModel;
 import com.kingpixel.cobbleutils.Model.PanelsConfig;
-import com.kingpixel.cobbleutils.Model.Sound;
 import com.kingpixel.cobbleutils.util.*;
 import lombok.Data;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -24,6 +23,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author Carlos Varas Alonso - 21/02/2025 5:27
@@ -37,8 +37,6 @@ public class Config {
   private String lang;
   private int rows;
   private String title;
-  private String soundOpen;
-  private String soundClose;
   private DataBaseConfig dataBase;
   private Map<String, Float> discounts;
   private ItemModel itemClose;
@@ -51,8 +49,6 @@ public class Config {
     this.lang = "en";
     this.rows = 6;
     this.title = "Shop";
-    this.soundOpen = "block.chest.open";
-    this.soundClose = "block.chest.close";
     this.discounts = new HashMap<>();
     this.discounts.put("group.vip", 2.0f);
     this.dataBase = new DataBaseConfig();
@@ -65,7 +61,8 @@ public class Config {
     );
   }
 
-  public void readConfig(ShopOptionsApi options) {
+  public Config readConfig(ShopOptionsApi options) {
+    AtomicReference<Config> config = new AtomicReference<>(this);
     String path = options.getPath();
     File folder = Utils.getAbsolutePath(path);
 
@@ -73,14 +70,12 @@ public class Config {
       folder.mkdirs();
     }
     CompletableFuture<Boolean> futureRead = Utils.readFileAsync(options.getPath(), "config.json", call -> {
-      Config config = CobbleShop.gson.fromJson(call, Config.class);
-      write(config, options);
+      config.set(CobbleShop.gson.fromJson(call, Config.class));
+      write(config.get(), options);
     });
 
-    if (!futureRead.join()) {
-      Config config = this;
-      write(config, options);
-    }
+    if (!futureRead.join()) write(config.get(), options);
+    return config.get();
   }
 
   private void write(Config config, ShopOptionsApi options) {
@@ -186,12 +181,12 @@ public class Config {
     PanelsConfig.applyConfig(template, panels, rows);
 
     List<Shop> shops = ShopApi.getShops(options);
-
     applyShops(shops, player, options, this, template, true);
+
 
     if (UIUtils.isInside(this.itemClose.getSlot(), rows)) {
       ItemModel close = CobbleShop.lang.getGlobalItemClose(itemClose);
-      GooeyButton closeButton = close.getButton(1, action -> UIManager.closeUI(player));
+      GooeyButton closeButton = close.getButton(1, action -> UIManager.closeUI(action.getPlayer()));
       template.set(itemClose.getSlot(), closeButton);
     }
 
@@ -200,7 +195,6 @@ public class Config {
       .builder()
       .template(template)
       .title(AdventureTranslator.toNative(title))
-      .onOpen(action -> new Sound(soundOpen).playSoundPlayer(action.getPlayer()))
       .build();
 
     UIManager.openUIForcefully(player, page);
@@ -217,7 +211,7 @@ public class Config {
           1,
           display.getDisplayname().replace("%shop%", shop.getId()),
           lore,
-          action -> Config.manageOpenShop(player, options, config, shop, new Stack<>(), shop, withClose)
+          action -> Config.manageOpenShop(action.getPlayer(), options, config, shop, new Stack<>(), shop, withClose)
         );
         template.set(shop.getDisplay().getSlot(), button);
       }
@@ -240,7 +234,8 @@ public class Config {
 
   public static void manageOpenShop(ServerPlayerEntity player, ShopOptionsApi options, Config config, Shop add,
                                     Stack<Shop> stack, Shop actual, boolean withClose) {
-    Shop shop = null;
+
+    Shop shop;
     if (stack == null) stack = new Stack<>();
     if (actual == null) {
       shop = stack.peek();
@@ -263,6 +258,7 @@ public class Config {
       }
       shop.open(player, options, config, 0, stack, withClose);
     }
+
   }
 
   public void createShop(ShopOptionsApi options, Shop shop) {

@@ -59,11 +59,11 @@ public class DataShop {
     }
   }
 
-  public List<Product> updateDynamicProducts(Shop shop, ShopOptionsApi options) {
+  public List<Product> updateDynamicProducts(Shop shop, ShopOptionsApi options, boolean force) {
     products.computeIfAbsent(options.getModId(), k -> new HashMap<>()).computeIfAbsent(shop.getId(), k -> new DynamicProduct());
     DynamicProduct dynamicProduct = products.get(options.getModId()).get(shop.getId());
     if (dynamicProduct.getTimeToUpdate() < System.currentTimeMillis() || dynamicProduct.getProducts().isEmpty()
-      || dynamicProduct.getProducts().size() != getRotationProducts(shop)) {
+      || dynamicProduct.getProducts().size() != getRotationProducts(shop) || force) {
       dynamicProduct.setTimeToUpdate(System.currentTimeMillis() + getCooldown(shop.getType()));
       List<Product> products = getNewProducts(shop, options);
       dynamicProduct.setProducts(products);
