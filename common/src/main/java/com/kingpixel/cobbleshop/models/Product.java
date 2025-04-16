@@ -56,7 +56,7 @@ public class Product {
   public Product() {
     product = "minecraft:stone";
     buy = BigDecimal.valueOf(9999999);
-    sell = BigDecimal.valueOf(1);
+    sell = BigDecimal.ZERO;
   }
 
   public Product(boolean optional) {
@@ -345,20 +345,29 @@ public class Product {
   }
 
   public boolean canSell(ServerPlayerEntity player, Shop shop, ShopOptionsApi options) {
-    if (player != null) {
-      BigDecimal buyPrice = getBuyPrice(player, 1, shop, ShopApi.getConfig(options));
-      BigDecimal sellPricePerUnit = getSellPricePerUnit(getItemStack());
+    // Verificar si el producto es vendible
+    if (!isSellable()) return false;
 
-      boolean canSell = buyPrice.compareTo(BigDecimal.ZERO) <= 0 || buyPrice.compareTo(sellPricePerUnit) >= 0;
-
-      if (ShopApi.getMainConfig().isDebug()) {
-        CobbleUtils.LOGGER.info("Buy Price: " + buyPrice + " Sell Price: " + sellPricePerUnit + " Can Sell: " + canSell);
-      }
-
-      return canSell;
+    // Si el jugador es nulo, realizar verificaciones básicas
+    if (player == null) {
+      return !product.startsWith("command:")
+        && !product.startsWith("pokemon:")
+        && !product.contains("|");
     }
 
-    return !product.startsWith("command:") && !product.startsWith("pokemon:") && sell.compareTo(BigDecimal.ZERO) > 0 && !product.contains("|");
+    // Calcular precios de venta y compra
+    BigDecimal sellPricePerUnit = getSellPricePerUnit(getItemStack());
+    BigDecimal buyPrice = getBuyPrice(player, 1, shop, ShopApi.getConfig(options));
+
+    // Determinar si el producto puede ser vendido
+    boolean canSell = buyPrice.compareTo(BigDecimal.ZERO) <= 0 || buyPrice.compareTo(sellPricePerUnit) >= 0;
+
+    // Registrar información en modo debug
+    if (ShopApi.getMainConfig().isDebug()) {
+      CobbleUtils.LOGGER.info("Buy Price: " + buyPrice + " Sell Price: " + sellPricePerUnit + " Can Sell: " + canSell);
+    }
+
+    return canSell;
   }
 
   public ItemStack getItemStack() {
@@ -412,6 +421,7 @@ public class Product {
 
   public static BigDecimal sellProduct(Shop shop, ItemStack itemStack, Product product) {
     ItemStack itemProduct = product.getItemStack();
+    if (product.getSell().compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
     if (areEquals(itemStack, itemProduct)) {
       int itemStackCount = itemStack.getCount();
       int itemProductCount = itemProduct.getCount();

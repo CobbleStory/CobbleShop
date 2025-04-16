@@ -211,7 +211,7 @@ public class Config {
           1,
           display.getDisplayname().replace("%shop%", shop.getId()),
           lore,
-          action -> Config.manageOpenShop(action.getPlayer(), options, config, shop, new Stack<>(), shop, withClose)
+          action -> Config.manageOpenShop(action.getPlayer(), options, config, shop, new Stack<>(), null, withClose)
         );
         template.set(shop.getDisplay().getSlot(), button);
       }
@@ -235,30 +235,57 @@ public class Config {
   public static void manageOpenShop(ServerPlayerEntity player, ShopOptionsApi options, Config config, Shop add,
                                     Stack<Shop> stack, Shop actual, boolean withClose) {
 
-    Shop shop;
-    if (stack == null) stack = new Stack<>();
-    if (actual == null) {
-      shop = stack.peek();
-      shop.open(player, options, config, 0, stack, withClose);
-    } else if (add != null) {
-      if (canOpen(player, add)) {
-        stack.push(add);
-        add.open(player, options, config, 0, stack, withClose);
-      }
-    } else if (stack.isEmpty()) {
-      config.open(player, options);
-    } else {
-      shop = stack.pop();
-      if (actual.equals(shop)) {
-        if (stack.isEmpty()) {
-          config.open(player, options);
-          return;
-        }
-        shop = stack.pop();
-      }
-      shop.open(player, options, config, 0, stack, withClose);
+    // Inicializar la pila si es nula
+    if (stack == null) {
+      stack = new Stack<>();
     }
 
+    try {
+      if (add != null) {
+        // Si se agrega una nueva tienda, verificar si se puede abrir
+        if (canOpen(player, add)) {
+          stack.push(add);
+          add.open(player, options, config, 0, stack, withClose);
+        }
+      } else if (actual != null) {
+        // Si se cierra una tienda, manejar la navegación en la pila
+        if (!stack.isEmpty() && stack.peek().equals(actual)) {
+          stack.pop(); // Eliminar la tienda actual de la pila
+        }
+        if (!stack.isEmpty()) {
+          // Abrir la tienda anterior sin eliminarla de la pila
+          Shop previousShop = stack.peek();
+          previousShop.open(player, options, config, 0, stack, withClose);
+        } else {
+          // Si la pila está vacía, abrir la configuración
+          config.open(player, options);
+        }
+      } else if (!stack.isEmpty()) {
+        // Si hay una tienda en la pila, abrirla
+        Shop previousShop = stack.peek();
+        previousShop.open(player, options, config, 0, stack, withClose);
+      } else {
+        // Si no hay tienda actual ni nueva tienda, abrir la configuración
+        config.open(player, options);
+      }
+    } catch (EmptyStackException e) {
+      // Manejo de error si la pila está vacía
+      CobbleUtils.LOGGER.error("Error: Intento de acceder a una pila vacía en manageOpenShop");
+      config.open(player, options);
+    }
+
+    // Bloque de debug al final
+    if (config.isDebug()) {
+      CobbleUtils.LOGGER.info("------------------------------------");
+      CobbleUtils.LOGGER.info("Shop: " + (add == null ? "null" : add.getId()));
+      List<String> shops = new ArrayList<>();
+      for (Shop shop : stack) {
+        shops.add(shop.getId());
+      }
+      CobbleUtils.LOGGER.info("Stack: " + shops);
+      CobbleUtils.LOGGER.info("Actual: " + (actual == null ? "null" : actual.getId()));
+      CobbleUtils.LOGGER.info("------------------------------------");
+    }
   }
 
   public void createShop(ShopOptionsApi options, Shop shop) {

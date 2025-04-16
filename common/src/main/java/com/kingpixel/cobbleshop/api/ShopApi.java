@@ -79,6 +79,7 @@ public class ShopApi {
         sellProducts.forEach((shop, products) -> {
           products.stream()
             .filter(product -> product.canSell(player, shop, options))
+            .filter(product -> product.getSell() != null && product.getSell().compareTo(BigDecimal.ZERO) > 0) // Verificar precio de venta
             .forEach(product -> {
               itemStacks.stream()
                 .map(itemStack -> Product.sellProduct(shop, itemStack, product))
